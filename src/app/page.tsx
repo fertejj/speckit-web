@@ -22,7 +22,8 @@ import {
   ChevronRight,
   Compass,
   Sun,
-  Moon
+  Moon,
+  Globe
 } from 'lucide-react';
 import styles from './page.module.css';
 import { 
@@ -35,6 +36,7 @@ import {
   FeatureDetails,
   DirectoryContent
 } from './actions';
+import { translations, Language, TranslationKeys } from './translations';
 
 export default function Home() {
   const [repoPath, setRepoPath] = useState('');
@@ -43,6 +45,18 @@ export default function Home() {
   const [features, setFeatures] = useState<FeatureSummary[]>([]);
   
   const [selectedFeatureId, setSelectedFeatureId] = useState<string | null>(null);
+  const [lang, setLang] = useState<Language>('en');
+
+  // Translation helper
+  const t = (key: TranslationKeys): string => {
+    return translations[lang]?.[key] || translations.en[key] || '';
+  };
+
+  const handleLanguageChange = (newLang: Language) => {
+    setLang(newLang);
+    localStorage.setItem('speckit_lang', newLang);
+  };
+  const [contentLang, setContentLang] = useState<string>('original');
   const [featureDetail, setFeatureDetail] = useState<FeatureDetails | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [activeTab, setActiveTab] = useState<'spec' | 'plan' | 'tasks' | 'walkthrough' | 'requirements'>('spec');
@@ -62,16 +76,68 @@ export default function Home() {
 
   const historyRef = useRef<HTMLDivElement>(null);
 
+  // Scan repository path
+  const handleScan = async (pathToCheck: string) => {
+    const targetPath = pathToCheck.trim();
+    if (!targetPath) return;
+
+    setScanStatus('scanning');
+    setSelectedFeatureId(null);
+    setFeatureDetail(null);
+    setFeatures([]);
+
+    const status = await checkRepository(targetPath);
+
+    if (!status.exists) {
+      setScanStatus('not_found');
+      setShowScanner(true);
+      return;
+    }
+
+    if (!status.isSpeckit) {
+      setScanStatus('invalid_speckit');
+      setShowScanner(true);
+      return;
+    }
+
+    setScanStatus('success');
+    setSpeckitVersion(status.speckitVersion || 'Unknown');
+    setShowScanner(false); // Collapse input on success
+
+    // Save to localStorage
+    localStorage.setItem('speckit_last_repo', targetPath);
+    setHistory(prev => {
+      const updated = [targetPath, ...prev.filter(p => p !== targetPath)].slice(0, 8);
+      localStorage.setItem('speckit_repo_history', JSON.stringify(updated));
+      return updated;
+    });
+
+    // Fetch features
+    const feats = await getFeatures(targetPath);
+    setFeatures(feats);
+  };
+
   // Load theme and history from localStorage on mount
   useEffect(() => {
     // Theme setup
     const savedTheme = localStorage.getItem('speckit_theme') as 'light' | 'dark' | null;
     if (savedTheme) {
-      setTheme(savedTheme);
+      setTheme(savedTheme); // eslint-disable-line react-hooks/set-state-in-effect
       document.documentElement.setAttribute('data-theme', savedTheme);
     } else {
       setTheme('light');
       document.documentElement.setAttribute('data-theme', 'light');
+    }
+
+    // Language setup
+    const savedLang = localStorage.getItem('speckit_lang') as Language | null;
+    if (savedLang && (savedLang === 'en' || savedLang === 'es')) {
+      setLang(savedLang);
+    } else {
+      const browserLang = navigator.language.split('-')[0];
+      const defaultLang: Language = (browserLang === 'es') ? 'es' : 'en';
+      setLang(defaultLang);
+      localStorage.setItem('speckit_lang', defaultLang);
     }
 
     // History setup
@@ -142,57 +208,16 @@ export default function Home() {
     setIsOpenExplorer(false);
   };
 
-  // Scan repository path
-  const handleScan = async (pathToCheck: string) => {
-    const targetPath = pathToCheck.trim();
-    if (!targetPath) return;
-
-    setScanStatus('scanning');
-    setSelectedFeatureId(null);
-    setFeatureDetail(null);
-    setFeatures([]);
-
-    const status = await checkRepository(targetPath);
-
-    if (!status.exists) {
-      setScanStatus('not_found');
-      setShowScanner(true);
-      return;
-    }
-
-    if (!status.isSpeckit) {
-      setScanStatus('invalid_speckit');
-      setShowScanner(true);
-      return;
-    }
-
-    setScanStatus('success');
-    setSpeckitVersion(status.speckitVersion || 'Unknown');
-    setShowScanner(false); // Collapse input on success
-
-    // Save to localStorage
-    localStorage.setItem('speckit_last_repo', targetPath);
-    setHistory(prev => {
-      const updated = [targetPath, ...prev.filter(p => p !== targetPath)].slice(0, 8);
-      localStorage.setItem('speckit_repo_history', JSON.stringify(updated));
-      return updated;
-    });
-
-    // Fetch features
-    const feats = await getFeatures(targetPath);
-    setFeatures(feats);
-  };
-
   // Load feature details when selected
   useEffect(() => {
     if (!selectedFeatureId || scanStatus !== 'success') {
-      setFeatureDetail(null);
+      setFeatureDetail(null); // eslint-disable-line react-hooks/set-state-in-effect
       return;
     }
 
     const loadDetails = async () => {
       setLoadingDetail(true);
-      const detail = await getFeatureDetails(repoPath, selectedFeatureId);
+      const detail = await getFeatureDetails(repoPath, selectedFeatureId, contentLang);
       setFeatureDetail(detail);
       setLoadingDetail(false);
 
@@ -208,7 +233,7 @@ export default function Home() {
     };
 
     loadDetails();
-  }, [selectedFeatureId, repoPath, scanStatus, features]);
+  }, [selectedFeatureId, repoPath, scanStatus, features, contentLang]);
 
   // Calculate global repository stats
   const totalFeatures = features.length;
@@ -226,7 +251,7 @@ export default function Home() {
       <header className={styles.topBar}>
         <div className={styles.logoArea}>
           <Sparkles className={styles.logoIcon} size={20} />
-          <span className={styles.logoText}>SpecKit</span>
+          <span className={styles.logoText}>{t('logoText')}</span>
           {scanStatus === 'success' && (
             <span className={styles.logoSub}>v{speckitVersion}</span>
           )}
@@ -246,7 +271,7 @@ export default function Home() {
               onClick={() => setShowScanner(true)}
               type="button"
             >
-              Switch Repository
+              {t('switchRepo')}
             </button>
           </div>
         ) : (
@@ -254,7 +279,7 @@ export default function Home() {
             <div className={styles.inputGroup} ref={historyRef}>
               <input 
                 type="text" 
-                placeholder="Enter absolute repository path (e.g. C:\Users\Fer\Desktop\DEV\dentaflow)..." 
+                placeholder={t('inputPlaceholder')} 
                 value={repoPath}
                 onChange={(e) => setRepoPath(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleScan(repoPath)}
@@ -262,7 +287,7 @@ export default function Home() {
               <button 
                 className={styles.folderPickerBtn} 
                 onClick={handleOpenExplorer}
-                title="Select Repository Folder"
+                title={t('folderPickerTitle')}
                 type="button"
               >
                 <Folder size={16} />
@@ -271,7 +296,7 @@ export default function Home() {
                 <button 
                   className={styles.historyBtn} 
                   onClick={() => setShowHistory(!showHistory)}
-                  title="Recent Repositories"
+                  title={t('recentReposTitle')}
                   type="button"
                 >
                   <History size={16} />
@@ -304,7 +329,7 @@ export default function Home() {
               >
                 {scanStatus === 'scanning' ? (
                   <Loader2 size={14} className={styles.loadingSpinner} />
-                ) : 'Scan'}
+                ) : t('scanBtnScan')}
               </button>
             </div>
             {scanStatus === 'success' && (
@@ -313,17 +338,36 @@ export default function Home() {
                 onClick={() => setShowScanner(false)}
                 type="button"
               >
-                Cancel
+                {t('modalCancel')}
               </button>
             )}
           </div>
         )}
 
         <div className={styles.headerActions}>
+          {/* Sliding Language Switcher */}
+          <div className={styles.langSwitcher}>
+            <div className={`${styles.langSlider} ${lang === 'en' ? styles.langSliderEn : styles.langSliderEs}`} />
+            <button 
+              className={`${styles.langBtn} ${lang === 'en' ? styles.langBtnActive : ''}`}
+              onClick={() => handleLanguageChange('en')}
+              type="button"
+            >
+              EN
+            </button>
+            <button 
+              className={`${styles.langBtn} ${lang === 'es' ? styles.langBtnActive : ''}`}
+              onClick={() => handleLanguageChange('es')}
+              type="button"
+            >
+              ES
+            </button>
+          </div>
+
           <button 
             className={styles.themeToggleBtn} 
             onClick={toggleTheme}
-            title={theme === 'light' ? 'Switch to Dark Mode' : 'Switch to Light Mode'}
+            title={theme === 'light' ? t('themeToggleDark') : t('themeToggleLight')}
             type="button"
           >
             {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
@@ -333,31 +377,31 @@ export default function Home() {
             {scanStatus === 'idle' && (
               <div className={styles.badge}>
                 <Folder size={12} />
-                <span>Ready</span>
+                <span>{t('badgeReady')}</span>
               </div>
             )}
             {scanStatus === 'scanning' && (
               <div className={`${styles.badge} ${styles.badgeInfo}`}>
                 <Loader2 size={12} className={styles.loadingSpinner} />
-                <span>Checking...</span>
+                <span>{t('badgeChecking')}</span>
               </div>
             )}
             {scanStatus === 'success' && (
               <div className={`${styles.badge} ${styles.badgeSuccess}`}>
                 <FolderCheck size={12} />
-                <span>Detected</span>
+                <span>{t('badgeDetected')}</span>
               </div>
             )}
             {scanStatus === 'invalid_speckit' && (
               <div className={`${styles.badge} ${styles.badgeWarning}`}>
                 <AlertCircle size={12} />
-                <span>No SpecKit</span>
+                <span>{t('badgeNoSpecKit')}</span>
               </div>
             )}
             {scanStatus === 'not_found' && (
               <div className={`${styles.badge} ${styles.badgeDanger}`}>
                 <AlertCircle size={12} />
-                <span>Not Found</span>
+                <span>{t('badgeNotFound')}</span>
               </div>
             )}
           </div>
@@ -376,12 +420,12 @@ export default function Home() {
                 type="button"
               >
                 <Compass size={16} />
-                <span>Overview</span>
+                <span>{t('sidebarOverview')}</span>
                 <span className={styles.homeProgressBadge}>{avgProgress}%</span>
               </button>
             </div>
 
-            <div className={styles.sidebarTitle}>Features</div>
+            <div className={styles.sidebarTitle}>{t('sidebarFeatures')}</div>
             <div className={styles.featureList}>
               {features.map((feat) => (
                 <button
@@ -407,10 +451,8 @@ export default function Home() {
             {scanStatus === 'idle' && (
               <div className={styles.emptyState}>
                 <Sparkles size={48} className={styles.emptyIcon} />
-                <h2>SpecKit Dashboard</h2>
-                <p>
-                  Explore and manage your development specifications, tasks, and implementation plans.
-                </p>
+                <h2>{t('emptyStateTitle')}</h2>
+                <p>{t('emptyStateSubtitle')}</p>
                 
                 <div className={styles.welcomeActions}>
                   <button 
@@ -419,13 +461,13 @@ export default function Home() {
                     type="button"
                   >
                     <Folder size={16} />
-                    <span>Select Repository Folder</span>
+                    <span>{t('emptyStateSelectFolder')}</span>
                   </button>
                 </div>
 
                 {history.length > 0 && (
                   <div className={styles.recentReposSection}>
-                    <h3 className={styles.recentReposTitle}>Recent Repositories</h3>
+                    <h3 className={styles.recentReposTitle}>{t('emptyStateRecentTitle')}</h3>
                     <div className={styles.recentReposGrid}>
                       {history.map((path, idx) => {
                         const name = path.split(/[\\/]/).filter(Boolean).pop() || path;
@@ -457,8 +499,8 @@ export default function Home() {
             {scanStatus === 'scanning' && (
               <div className={styles.emptyState}>
                 <Loader2 size={48} className={styles.loadingSpinner} style={{ marginBottom: '20px' }} />
-                <h2>Scanning Workspace</h2>
-                <p>Analyzing repository metadata and specs folders...</p>
+                <h2>{t('scanningTitle')}</h2>
+                <p>{t('scanningSubtitle')}</p>
               </div>
             )}
 
@@ -466,18 +508,18 @@ export default function Home() {
               <div className={styles.emptyState}>
                 <AlertCircle size={64} className={styles.emptyIcon} style={{ color: 'var(--color-warning)' }} />
                 <h2>
-                  {scanStatus === 'not_found' ? 'Folder Directory Not Found' : 'Repository is not using Spec-kit'}
+                  {scanStatus === 'not_found' ? t('errorDirNotFound') : t('errorNotSpeckit')}
                 </h2>
                 <p style={{ marginBottom: '24px' }}>
                   {scanStatus === 'not_found' 
-                    ? 'The absolute path you entered does not exist. Please check your path spelling and formatting.' 
-                    : 'The directory is valid but it does not contain a Spec-kit project configuration. Spec-kit projects contain a `.specify/` folder or a `specs/` directory.'}
+                    ? t('errorDirNotFoundDesc') 
+                    : t('errorNotSpeckitDesc')}
                 </p>
                 <div style={{ background: 'var(--bg-card)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border-color)', maxWidth: '400px', textAlign: 'left', fontSize: '0.85rem' }}>
-                  <strong style={{ color: 'var(--text-primary)' }}>Troubleshooting:</strong>
+                  <strong style={{ color: 'var(--text-primary)' }}>{t('troubleshootingTitle')}</strong>
                   <ul style={{ paddingLeft: '20px', marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '6px', color: 'var(--text-secondary)' }}>
-                    <li>Ensure you provide the full absolute path (e.g. <code>C:\Users\Fer\Desktop\DEV\dentaflow</code>)</li>
-                    <li>Verify the folder contains a <code>specs</code> subdirectory with markdown files.</li>
+                    <li>{t('troubleshootingStep1')}</li>
+                    <li>{t('troubleshootingStep2')}</li>
                   </ul>
                 </div>
               </div>
@@ -486,7 +528,7 @@ export default function Home() {
             {scanStatus === 'success' && !selectedFeatureId && (
               <div className={styles.dashboardSummary}>
                 <div className={styles.summaryTitleArea}>
-                  <h1>Repository Overview</h1>
+                  <h1>{t('overviewTitle')}</h1>
                   <p style={{ color: 'var(--text-secondary)' }}>{repoPath}</p>
                 </div>
 
@@ -496,7 +538,7 @@ export default function Home() {
                       <Layout className={styles.statIcon} size={20} />
                     </div>
                     <div className={styles.statInfo}>
-                      <span className={styles.statLabel}>Features</span>
+                      <span className={styles.statLabel}>{t('statsFeatures')}</span>
                       <span className={styles.statValue}>{totalFeatures}</span>
                     </div>
                   </div>
@@ -506,7 +548,7 @@ export default function Home() {
                       <CheckCircle2 className={styles.statIcon} size={20} />
                     </div>
                     <div className={styles.statInfo}>
-                      <span className={styles.statLabel}>Completed</span>
+                      <span className={styles.statLabel}>{t('statsCompleted')}</span>
                       <span className={styles.statValue}>{completedFeatures}</span>
                     </div>
                   </div>
@@ -516,7 +558,7 @@ export default function Home() {
                       <Compass className={styles.statIcon} size={20} />
                     </div>
                     <div className={styles.statInfo}>
-                      <span className={styles.statLabel}>Avg Progress</span>
+                      <span className={styles.statLabel}>{t('statsAvgProgress')}</span>
                       <span className={styles.statValue}>{avgProgress}%</span>
                     </div>
                   </div>
@@ -525,17 +567,17 @@ export default function Home() {
                 <div className={styles.summarySection}>
                   <h2>
                     <ClipboardList size={18} />
-                    <span>Spec-kit Features Checklist</span>
+                    <span>{t('checklistTitle')}</span>
                   </h2>
 
                   <table className={styles.featuresTable}>
                     <thead>
                       <tr>
-                        <th>Feature Title</th>
-                        <th>Target Branch</th>
-                        <th>Release Date</th>
-                        <th>SpecFiles Available</th>
-                        <th>Progress</th>
+                        <th>{t('tableColTitle')}</th>
+                        <th>{t('tableColBranch')}</th>
+                        <th>{t('tableColDate')}</th>
+                        <th>{t('tableColFiles')}</th>
+                        <th>{t('tableColProgress')}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -596,19 +638,19 @@ export default function Home() {
                 {/* Detail Header card */}
                 <div className={styles.detailHeader}>
                   <div className={styles.detailTitleArea}>
-                    <div className={styles.detailId}>FEATURE WORKSPACE &bull; {selectedFeature.id}</div>
+                    <div className={styles.detailId}>{t('featureWorkspace')} &bull; {selectedFeature.id}</div>
                     <h1>{selectedFeature.title}</h1>
                     <div className={styles.metaRow}>
                       {selectedFeature.branch && (
                         <div className={styles.metaItem}>
                           <GitBranch size={14} />
-                          <span>Branch: <code>{selectedFeature.branch}</code></span>
+                          <span>{t('branchLabel')}: <code>{selectedFeature.branch}</code></span>
                         </div>
                       )}
                       {selectedFeature.date && (
                         <div className={styles.metaItem}>
                           <Calendar size={14} />
-                          <span>Target Date: <strong>{selectedFeature.date}</strong></span>
+                          <span>{t('dateLabel')}: <strong>{selectedFeature.date}</strong></span>
                         </div>
                       )}
                     </div>
@@ -616,9 +658,11 @@ export default function Home() {
 
                   <div className={styles.detailProgressArea}>
                     <div className={styles.detailStatsText}>
-                      Tasks: <strong>{selectedFeature.tasksCount.completed}</strong> / {selectedFeature.tasksCount.total} completed
+                      {t('tasksCompletedLabel')
+                        .replace('{completed}', selectedFeature.tasksCount.completed.toString())
+                        .replace('{total}', selectedFeature.tasksCount.total.toString())}
                       {selectedFeature.tasksCount.inProgress > 0 && (
-                        <span> ({selectedFeature.tasksCount.inProgress} in progress)</span>
+                        <span> {t('tasksInProgressLabel').replace('{inProgress}', selectedFeature.tasksCount.inProgress.toString())}</span>
                       )}
                     </div>
                     <div className={styles.progressBarContainer} style={{ width: '220px', height: '8px' }}>
@@ -633,58 +677,83 @@ export default function Home() {
                   </div>
                 </div>
 
-                {/* Tabs selection bar */}
-                <div className={styles.tabsContainer}>
-                  <button 
-                    className={`${styles.tabBtn} ${activeTab === 'spec' ? styles.tabBtnActive : ''}`}
-                    onClick={() => setActiveTab('spec')}
-                    disabled={!selectedFeature.hasSpec}
-                    style={{ opacity: selectedFeature.hasSpec ? 1 : 0.4, cursor: selectedFeature.hasSpec ? 'pointer' : 'not-allowed' }}
-                    type="button"
-                  >
-                    <FileText size={16} />
-                    <span>Specification</span>
-                  </button>
-                  <button 
-                    className={`${styles.tabBtn} ${activeTab === 'plan' ? styles.tabBtnActive : ''}`}
-                    onClick={() => setActiveTab('plan')}
-                    disabled={!selectedFeature.hasPlan}
-                    style={{ opacity: selectedFeature.hasPlan ? 1 : 0.4, cursor: selectedFeature.hasPlan ? 'pointer' : 'not-allowed' }}
-                    type="button"
-                  >
-                    <Compass size={16} />
-                    <span>Implementation Plan</span>
-                  </button>
-                  <button 
-                    className={`${styles.tabBtn} ${activeTab === 'tasks' ? styles.tabBtnActive : ''}`}
-                    onClick={() => setActiveTab('tasks')}
-                    disabled={!selectedFeature.hasTasks}
-                    style={{ opacity: selectedFeature.hasTasks ? 1 : 0.4, cursor: selectedFeature.hasTasks ? 'pointer' : 'not-allowed' }}
-                    type="button"
-                  >
-                    <CheckSquare size={16} />
-                    <span>Tasks Checklist</span>
-                  </button>
-                  <button 
-                    className={`${styles.tabBtn} ${activeTab === 'walkthrough' ? styles.tabBtnActive : ''}`}
-                    onClick={() => setActiveTab('walkthrough')}
-                    disabled={!selectedFeature.hasWalkthrough}
-                    style={{ opacity: selectedFeature.hasWalkthrough ? 1 : 0.4, cursor: selectedFeature.hasWalkthrough ? 'pointer' : 'not-allowed' }}
-                    type="button"
-                  >
-                    <FileCheck size={16} />
-                    <span>Walkthrough</span>
-                  </button>
-                  <button 
-                    className={`${styles.tabBtn} ${activeTab === 'requirements' ? styles.tabBtnActive : ''}`}
-                    onClick={() => setActiveTab('requirements')}
-                    disabled={!selectedFeature.hasRequirements}
-                    style={{ opacity: selectedFeature.hasRequirements ? 1 : 0.4, cursor: selectedFeature.hasRequirements ? 'pointer' : 'not-allowed' }}
-                    type="button"
-                  >
-                    <ClipboardList size={16} />
-                    <span>Requirements</span>
-                  </button>
+                {/* Tabs selection bar and Translator */}
+                <div className={styles.tabsHeaderRow}>
+                  <div className={styles.tabsContainer}>
+                    <button 
+                      className={`${styles.tabBtn} ${activeTab === 'spec' ? styles.tabBtnActive : ''}`}
+                      onClick={() => setActiveTab('spec')}
+                      disabled={!selectedFeature.hasSpec}
+                      style={{ opacity: selectedFeature.hasSpec ? 1 : 0.4, cursor: selectedFeature.hasSpec ? 'pointer' : 'not-allowed' }}
+                      type="button"
+                    >
+                      <FileText size={16} />
+                      <span>{t('tabSpec')}</span>
+                    </button>
+                    <button 
+                      className={`${styles.tabBtn} ${activeTab === 'plan' ? styles.tabBtnActive : ''}`}
+                      onClick={() => setActiveTab('plan')}
+                      disabled={!selectedFeature.hasPlan}
+                      style={{ opacity: selectedFeature.hasPlan ? 1 : 0.4, cursor: selectedFeature.hasPlan ? 'pointer' : 'not-allowed' }}
+                      type="button"
+                    >
+                      <Compass size={16} />
+                      <span>{t('tabPlan')}</span>
+                    </button>
+                    <button 
+                      className={`${styles.tabBtn} ${activeTab === 'tasks' ? styles.tabBtnActive : ''}`}
+                      onClick={() => setActiveTab('tasks')}
+                      disabled={!selectedFeature.hasTasks}
+                      style={{ opacity: selectedFeature.hasTasks ? 1 : 0.4, cursor: selectedFeature.hasTasks ? 'pointer' : 'not-allowed' }}
+                      type="button"
+                    >
+                      <CheckSquare size={16} />
+                      <span>{t('tabTasks')}</span>
+                    </button>
+                    <button 
+                      className={`${styles.tabBtn} ${activeTab === 'walkthrough' ? styles.tabBtnActive : ''}`}
+                      onClick={() => setActiveTab('walkthrough')}
+                      disabled={!selectedFeature.hasWalkthrough}
+                      style={{ opacity: selectedFeature.hasWalkthrough ? 1 : 0.4, cursor: selectedFeature.hasWalkthrough ? 'pointer' : 'not-allowed' }}
+                      type="button"
+                    >
+                      <FileCheck size={16} />
+                      <span>{t('tabWalk')}</span>
+                    </button>
+                    <button 
+                      className={`${styles.tabBtn} ${activeTab === 'requirements' ? styles.tabBtnActive : ''}`}
+                      onClick={() => setActiveTab('requirements')}
+                      disabled={!selectedFeature.hasRequirements}
+                      style={{ opacity: selectedFeature.hasRequirements ? 1 : 0.4, cursor: selectedFeature.hasRequirements ? 'pointer' : 'not-allowed' }}
+                      type="button"
+                    >
+                      <ClipboardList size={16} />
+                      <span>{t('tabReq')}</span>
+                    </button>
+                  </div>
+                  
+                  <div className={styles.translatorWrapper}>
+                    <label htmlFor="md-translator-select" className={styles.translatorLabel}>
+                      <Globe size={14} />
+                      <span>{t('translatorLabel')}</span>
+                    </label>
+                    <select 
+                      id="md-translator-select"
+                      className={styles.translatorSelect}
+                      value={contentLang}
+                      onChange={(e) => setContentLang(e.target.value)}
+                    >
+                      <option value="original">{t('translatorOriginal')}</option>
+                      <option value="en">English (EN)</option>
+                      <option value="es">Español (ES)</option>
+                      <option value="pt">Português (PT)</option>
+                      <option value="fr">Français (FR)</option>
+                      <option value="de">Deutsch (DE)</option>
+                      <option value="it">Italiano (IT)</option>
+                      <option value="ja">日本語 (JA)</option>
+                      <option value="zh">中文 (ZH)</option>
+                    </select>
+                  </div>
                 </div>
 
                 {/* Tab content panel */}
@@ -692,7 +761,7 @@ export default function Home() {
                   {loadingDetail ? (
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '300px' }}>
                       <Loader2 size={36} className={styles.loadingSpinner} style={{ marginBottom: '16px' }} />
-                      <p style={{ color: 'var(--text-secondary)' }}>Loading feature details...</p>
+                      <p style={{ color: 'var(--text-secondary)' }}>{t('loadingFeatureDetails')}</p>
                     </div>
                   ) : (
                     <>
@@ -722,9 +791,13 @@ export default function Home() {
                                 return (
                                   <div key={pIdx} className={styles.phaseBlock}>
                                     <div className={styles.phaseHeader}>
-                                      <span className={styles.phaseTitle}>{phase.title}</span>
+                                      <span className={styles.phaseTitle}>
+                                        {phase.title === 'General Setup / Pre-phase' ? t('phasePrePhase') : phase.title}
+                                      </span>
                                       <span className={styles.phaseProgressBadge}>
-                                        {completedPTasks} / {totalPTasks} Done
+                                        {t('phaseDone')
+                                          .replace('{completed}', completedPTasks.toString())
+                                          .replace('{total}', totalPTasks.toString())}
                                       </span>
                                     </div>
                                     <div className={styles.phaseTasksList}>
@@ -778,7 +851,7 @@ export default function Home() {
             <div className={styles.modalHeader}>
               <h3>
                 <Folder className={styles.explorerFolderIcon} size={20} />
-                <span>Browse Local Filesystem</span>
+                <span>{t('modalBrowseTitle')}</span>
               </h3>
               <button className={styles.closeBtn} onClick={() => setIsOpenExplorer(false)} type="button">
                 X
@@ -789,7 +862,7 @@ export default function Home() {
               {/* Drives Selector */}
               {explorerContent?.drives && explorerContent.drives.length > 1 && (
                 <div className={styles.drivesRow}>
-                  <span className={styles.driveLabel}>Drives:</span>
+                  <span className={styles.driveLabel}>{t('modalDrives')}</span>
                   {explorerContent.drives.map((drive) => (
                     <button 
                       key={drive} 
@@ -839,7 +912,7 @@ export default function Home() {
                 {loadingExplorer ? (
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
                     <Loader2 className={styles.loadingSpinner} size={28} style={{ marginBottom: '12px' }} />
-                    <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Reading folder...</span>
+                    <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{t('modalReadingFolder')}</span>
                   </div>
                 ) : (
                   <>
@@ -852,7 +925,7 @@ export default function Home() {
                       >
                         <div className={styles.explorerFolderInfo}>
                           <Folder className={styles.explorerFolderIcon} size={16} />
-                          <span>.. (Up One Level)</span>
+                          <span>{t('modalUpOneLevel')}</span>
                         </div>
                       </button>
                     )}
@@ -871,13 +944,13 @@ export default function Home() {
                             <span>{folder.name}</span>
                           </div>
                           {folder.isSpeckit && (
-                            <span className={styles.explorerBadge}>SpecKit Project</span>
+                            <span className={styles.explorerBadge}>{t('modalProjectBadge')}</span>
                           )}
                         </button>
                       ))
                     ) : (
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                        No folders found in this directory
+                        {t('modalNoFolders')}
                       </div>
                     )}
                   </>
@@ -887,14 +960,14 @@ export default function Home() {
 
             <div className={styles.modalFooter}>
               <div className={styles.currentSelectionText}>
-                Path: <code>{explorerPath}</code>
+                {t('modalPathLabel')} <code>{explorerPath}</code>
               </div>
               <div className={styles.footerActions}>
                 <button className={styles.cancelBtn} onClick={() => setIsOpenExplorer(false)} type="button">
-                  Cancel
+                  {t('modalCancel')}
                 </button>
                 <button className={styles.scanButton} onClick={handleSelectExplorerFolder} type="button">
-                  Select Folder
+                  {t('modalSelectFolder')}
                 </button>
               </div>
             </div>

@@ -2,7 +2,7 @@
 
 import fs from 'fs/promises';
 import path from 'path';
-import matter from 'gray-matter';
+import matter from 'gray-matter'; // eslint-disable-line @typescript-eslint/no-unused-vars
 import { marked } from 'marked';
 import { exec } from 'child_process';
 import { promisify } from 'util';
@@ -130,11 +130,12 @@ export async function checkRepository(repoPath: string): Promise<RepoStatus> {
       isSpeckit,
       speckitVersion: isSpeckit ? speckitVersion : undefined,
     };
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
     return {
       exists: false,
       isSpeckit: false,
-      error: err.message || 'Error checking directory stats',
+      error: errorMsg || 'Error checking directory stats',
     };
   }
 }
@@ -245,8 +246,145 @@ export async function getFeatures(repoPath: string): Promise<FeatureSummary[]> {
   }
 }
 
-// Get the full detail of a specific feature
-export async function getFeatureDetails(repoPath: string, featureId: string): Promise<FeatureDetails | null> {
+// Global translation cache
+const translationCache = new Map<string, string>();
+
+// Translate plain text using Google's free translation web API
+async function translateText(text: string, targetLang: string): Promise<string> {
+  if (!text || text.trim() === '') return text;
+
+  const cacheKey = `${targetLang}:${text}`;
+  if (translationCache.has(cacheKey)) {
+    return translationCache.get(cacheKey)!;
+  }
+
+  try {
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${targetLang}&dt=t&q=${encodeURIComponent(text)}`;
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'User-Agent': 'Mozilla/5.0'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Google Translate API returned status ${response.status}`);
+    }
+
+    const data = await response.json();
+    if (data && data[0]) {
+      const translated = data[0].map((item: any) => item[0] || '').join('');
+      translationCache.set(cacheKey, translated);
+      return translated;
+    }
+  } catch (err) {
+    console.error(`Error translating text to ${targetLang}:`, err);
+  }
+
+  return text; // Fallback
+}
+
+// Translate markdown content while preserving structure (code blocks, checkboxes, alerts)
+export async function translateMarkdown(markdown: string, targetLang: string): Promise<string> {
+  if (!markdown || !targetLang || targetLang === 'original') return markdown;
+
+  // Split into code blocks and normal text blocks
+  const lines = markdown.split('\n');
+  const blocks: { type: 'code' | 'text'; lines: string[] }[] = [];
+  let currentBlock: { type: 'code' | 'text'; lines: string[] } | null = null;
+  let inCodeBlock = false;
+
+  for (const line of lines) {
+    if (line.trim().startsWith('```')) {
+      if (inCodeBlock) {
+        // Ending code block
+        currentBlock?.lines.push(line);
+        inCodeBlock = false;
+        currentBlock = null;
+      } else {
+        // Starting code block
+        currentBlock = { type: 'code', lines: [line] };
+        blocks.push(currentBlock);
+        inCodeBlock = true;
+      }
+    } else {
+      if (inCodeBlock) {
+        currentBlock?.lines.push(line);
+      } else {
+        if (!currentBlock || currentBlock.type !== 'text') {
+          currentBlock = { type: 'text', lines: [line] };
+          blocks.push(currentBlock);
+        } else {
+          currentBlock.lines.push(line);
+        }
+      }
+    }
+  }
+
+  // Process and translate text blocks
+  const translatedBlocks = await Promise.all(
+    blocks.map(async (block) => {
+      if (block.type === 'code') {
+        return block.lines.join('\n');
+      }
+
+      const textContent = block.lines.join('\n');
+      if (textContent.trim() === '') return textContent;
+
+      // Split text content into paragraphs to avoid huge payloads, keeping chunks <= 2500 chars
+      const paragraphs = textContent.split('\n\n');
+      const chunks: string[] = [];
+      let currentChunk = '';
+
+      for (const p of paragraphs) {
+        if ((currentChunk + '\n\n' + p).length > 2500) {
+          if (currentChunk) chunks.push(currentChunk);
+          currentChunk = p;
+        } else {
+          if (currentChunk) {
+            currentChunk += '\n\n' + p;
+          } else {
+            currentChunk = p;
+          }
+        }
+      }
+      if (currentChunk) chunks.push(currentChunk);
+
+      // Translate each chunk
+      const translatedChunks = await Promise.all(
+        chunks.map(async (chunk) => {
+          // Pre-process: protect alert banners
+          let processed = chunk.replace(/^>\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]/gim, 'X_ALERT_$1_X');
+
+          // Pre-process: protect checkboxes
+          processed = processed.replace(/^(\s*[-*+]\s+)\[\s*\](\s+)/gm, '$1X_CHECK_TODO_X$2');
+          processed = processed.replace(/^(\s*[-*+]\s+)\[\s*[xX]\s*\](\s+)/gm, '$1X_CHECK_DONE_X$2');
+          processed = processed.replace(/^(\s*[-*+]\s+)\[\s*\/\s*\](\s+)/gm, '$1X_CHECK_PROGRESS_X$2');
+
+          // Call translator
+          let translated = await translateText(processed, targetLang);
+
+          // Post-process: restore alert banners
+          translated = translated.replace(/X_ALERT_(NOTE|TIP|IMPORTANT|WARNING|CAUTION)_X/gi, (_, type) => `> [!${type.toUpperCase()}]`);
+
+          // Post-process: restore checkboxes
+          translated = translated.replace(/X_CHECK_TODO_X/gi, '[ ]');
+          translated = translated.replace(/X_CHECK_DONE_X/gi, '[x]');
+          translated = translated.replace(/X_CHECK_PROGRESS_X/gi, '[/]');
+
+          return translated;
+        })
+      );
+
+      return translatedChunks.join('\n\n');
+    })
+  );
+
+  return translatedBlocks.join('\n');
+}
+
+// Get the full detail of a specific feature, with optional target translation language
+export async function getFeatureDetails(repoPath: string, featureId: string, targetLang?: string): Promise<FeatureDetails | null> {
   const normalizedPath = path.normalize(repoPath.trim());
   const featureDir = path.join(normalizedPath, 'specs', featureId);
 
@@ -257,34 +395,57 @@ export async function getFeatureDetails(repoPath: string, featureId: string): Pr
     const walkthroughPath = path.join(featureDir, 'walkthrough.md');
     const reqPath = path.join(featureDir, 'checklists', 'requirements.md');
 
-    // Helper to read file and convert to html
-    const readAndParseMd = async (filePath: string): Promise<string | null> => {
+    // Helper to read file content
+    const readFileIfExists = async (filePath: string): Promise<string | null> => {
       try {
-        const content = await fs.readFile(filePath, 'utf8');
-        // Handle github-style alerts: > [!NOTE], > [!IMPORTANT], etc.
-        const cleanedContent = content.replace(
-          /^>\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\n((?:^>.*\n?)*)/gim,
-          (match, type, text) => {
-            const innerText = text.replace(/^>\s?/gm, '').trim();
-            return `<div class="alert alert-${type.toLowerCase()}">
-  <div class="alert-title">${type}</div>
-  <div class="alert-content">${innerText}</div>
-</div>`;
-          }
-        );
-        return marked.parse(cleanedContent) as string;
+        return await fs.readFile(filePath, 'utf8');
       } catch {
         return null;
       }
     };
 
-    const [specHtml, planHtml, tasksHtml, walkthroughHtml, requirementsHtml] = await Promise.all([
-      readAndParseMd(specPath),
-      readAndParseMd(planPath),
-      readAndParseMd(tasksPath),
-      readAndParseMd(walkthroughPath),
-      readAndParseMd(reqPath),
+    // Read all raw markdown contents
+    let [specMd, planMd, tasksMd, walkthroughMd, requirementsMd] = await Promise.all([
+      readFileIfExists(specPath),
+      readFileIfExists(planPath),
+      readFileIfExists(tasksPath),
+      readFileIfExists(walkthroughPath),
+      readFileIfExists(reqPath),
     ]);
+
+    // Translate markdown content if target language is requested
+    if (targetLang && targetLang !== 'original') {
+      [specMd, planMd, tasksMd, walkthroughMd, requirementsMd] = await Promise.all([
+        specMd ? translateMarkdown(specMd, targetLang) : null,
+        planMd ? translateMarkdown(planMd, targetLang) : null,
+        tasksMd ? translateMarkdown(tasksMd, targetLang) : null,
+        walkthroughMd ? translateMarkdown(walkthroughMd, targetLang) : null,
+        requirementsMd ? translateMarkdown(requirementsMd, targetLang) : null,
+      ]);
+    }
+
+    // Helper to parse markdown string into HTML
+    const parseMdToHtml = (content: string | null): string | null => {
+      if (!content) return null;
+      // Handle github-style alerts: > [!NOTE], > [!IMPORTANT], etc.
+      const cleanedContent = content.replace(
+        /^>\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\n((?:^>.*\n?)*)/gim,
+        (match, type, text) => {
+          const innerText = text.replace(/^>\s?/gm, '').trim();
+          return `<div class="alert alert-${type.toLowerCase()}">
+  <div class="alert-title">${type}</div>
+  <div class="alert-content">${innerText}</div>
+</div>`;
+        }
+      );
+      return marked.parse(cleanedContent) as string;
+    };
+
+    const specHtml = parseMdToHtml(specMd);
+    const planHtml = parseMdToHtml(planMd);
+    const tasksHtml = parseMdToHtml(tasksMd);
+    const walkthroughHtml = parseMdToHtml(walkthroughMd);
+    const requirementsHtml = parseMdToHtml(requirementsMd);
 
     // Parse tasks.md into structured sections (phases)
     const phases: TaskPhase[] = [];
@@ -293,10 +454,8 @@ export async function getFeatureDetails(repoPath: string, featureId: string): Pr
     let completed = 0;
     let inProgress = 0;
 
-    try {
-      const tasksContent = await fs.readFile(tasksPath, 'utf8');
-      const lines = tasksContent.split('\n');
-
+    if (tasksMd) {
+      const lines = tasksMd.split('\n');
       let taskCounter = 0;
 
       for (const line of lines) {
@@ -350,7 +509,7 @@ export async function getFeatureDetails(repoPath: string, featureId: string): Pr
       if (currentPhase) {
         phases.push(currentPhase);
       }
-    } catch {}
+    }
 
     return {
       id: featureId,

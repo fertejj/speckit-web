@@ -61,6 +61,8 @@ export const translations = {
     modalPathLabel: "Path:",
     modalCancel: "Cancel",
     modalSelectFolder: "Select Folder",
+    translatorLabel: "Translate Content:",
+    translatorOriginal: "Original",
   },
   es: {
     logoText: "SpecKit",
@@ -124,6 +126,8 @@ export const translations = {
     modalPathLabel: "Ruta:",
     modalCancel: "Cancelar",
     modalSelectFolder: "Seleccionar Carpeta",
+    translatorLabel: "Traducir Contenido:",
+    translatorOriginal: "Original",
   }
 };
 

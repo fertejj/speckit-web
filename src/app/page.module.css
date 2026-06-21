@@ -858,12 +858,65 @@
   color: var(--text-primary);
 }
 
+.tabsHeaderRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 32px;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
 .tabsContainer {
   display: flex;
-  border-bottom: 1px solid var(--border-color);
-  margin-bottom: 32px; /* 32px vertical margin */
   gap: 4px;
   overflow-x: auto;
+  margin-bottom: -1px;
+}
+
+.translatorWrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  margin-bottom: 8px;
+  transition: all 0.2s ease;
+}
+
+.translatorWrapper:focus-within {
+  border-color: var(--text-primary);
+  box-shadow: 0 0 0 2px var(--input-focus-ring);
+}
+
+.translatorLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.translatorSelect {
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  outline: none;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.translatorSelect option {
+  background: var(--bg-card);
+  color: var(--text-primary);
 }
 
 .tabBtn {

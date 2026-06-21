@@ -37,6 +37,14 @@ import {
   DirectoryContent
 } from './actions';
 import { translations, Language, TranslationKeys } from './translations';
+import {
+  ClientFolderSource,
+  DirectoryHandleSource,
+  FilesListSource,
+  clientCheckRepository,
+  clientGetFeatures,
+  clientGetFeatureDetails
+} from './clientParser';
 
 export default function Home() {
   const [repoPath, setRepoPath] = useState('');
@@ -75,10 +83,13 @@ export default function Home() {
   const [loadingExplorer, setLoadingExplorer] = useState(false);
 
   const historyRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [clientSource, setClientSource] = useState<ClientFolderSource | null>(null);
 
   // Scan repository path
-  const handleScan = async (pathToCheck: string) => {
-    const targetPath = pathToCheck.trim();
+  const handleScan = async (pathToCheck: string | ClientFolderSource) => {
+    const isClient = typeof pathToCheck !== 'string';
+    const targetPath = isClient ? (pathToCheck as ClientFolderSource).name : (pathToCheck as string).trim();
     if (!targetPath) return;
 
     setScanStatus('scanning');
@@ -86,7 +97,12 @@ export default function Home() {
     setFeatureDetail(null);
     setFeatures([]);
 
-    const status = await checkRepository(targetPath);
+    let status;
+    if (isClient) {
+      status = await clientCheckRepository(pathToCheck as ClientFolderSource);
+    } else {
+      status = await checkRepository(targetPath);
+    }
 
     if (!status.exists) {
       setScanStatus('not_found');
@@ -104,16 +120,26 @@ export default function Home() {
     setSpeckitVersion(status.speckitVersion || 'Unknown');
     setShowScanner(false); // Collapse input on success
 
-    // Save to localStorage
-    localStorage.setItem('speckit_last_repo', targetPath);
-    setHistory(prev => {
-      const updated = [targetPath, ...prev.filter(p => p !== targetPath)].slice(0, 8);
-      localStorage.setItem('speckit_repo_history', JSON.stringify(updated));
-      return updated;
-    });
+    if (isClient) {
+      setClientSource(pathToCheck as ClientFolderSource);
+      setRepoPath((pathToCheck as ClientFolderSource).name);
+      localStorage.setItem('speckit_last_repo', (pathToCheck as ClientFolderSource).name);
+    } else {
+      setClientSource(null);
+      setRepoPath(targetPath);
+      // Save to localStorage
+      localStorage.setItem('speckit_last_repo', targetPath);
+      setHistory(prev => {
+        const updated = [targetPath, ...prev.filter(p => p !== targetPath)].slice(0, 8);
+        localStorage.setItem('speckit_repo_history', JSON.stringify(updated));
+        return updated;
+      });
+    }
 
     // Fetch features
-    const feats = await getFeatures(targetPath);
+    const feats = isClient 
+      ? await clientGetFeatures(pathToCheck as ClientFolderSource)
+      : await getFeatures(targetPath);
     setFeatures(feats);
   };
 
@@ -176,22 +202,52 @@ export default function Home() {
 
   // File Explorer Actions
   const handleOpenExplorer = async () => {
-    setIsOpenExplorer(true);
-    setLoadingExplorer(true);
-    
-    let startPath = repoPath.trim();
-    if (!startPath) {
-      startPath = localStorage.getItem('speckit_last_repo') || '';
+    const isServerScanningDisabled = typeof window !== 'undefined' && 
+      window.location.hostname !== 'localhost' && 
+      window.location.hostname !== '127.0.0.1';
+
+    if (isServerScanningDisabled || (typeof window !== 'undefined' && 'showDirectoryPicker' in window)) {
+      if (typeof window !== 'undefined' && 'showDirectoryPicker' in window) {
+        try {
+          const handle = await (window as any).showDirectoryPicker();
+          if (handle) {
+            const source = new DirectoryHandleSource(handle);
+            await handleScan(source);
+          }
+        } catch (err: any) {
+          console.warn('Directory picker closed or failed:', err);
+        }
+      } else {
+        if (fileInputRef.current) {
+          fileInputRef.current.click();
+        }
+      }
+    } else {
+      setIsOpenExplorer(true);
+      setLoadingExplorer(true);
+      
+      let startPath = repoPath.trim();
+      if (!startPath) {
+        startPath = localStorage.getItem('speckit_last_repo') || '';
+      }
+      const homeDir = await getHomeDir();
+      if (!startPath) {
+        startPath = homeDir;
+      }
+      
+      setExplorerPath(startPath);
+      const content = await listDirectory(startPath);
+      setExplorerContent(content);
+      setLoadingExplorer(false);
     }
-    const homeDir = await getHomeDir();
-    if (!startPath) {
-      startPath = homeDir;
+  };
+
+  const handleFileInputChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      const source = new FilesListSource(Array.from(files));
+      await handleScan(source);
     }
-    
-    setExplorerPath(startPath);
-    const content = await listDirectory(startPath);
-    setExplorerContent(content);
-    setLoadingExplorer(false);
   };
 
   const handleNavigateExplorer = async (targetPath: string) => {
@@ -217,7 +273,9 @@ export default function Home() {
 
     const loadDetails = async () => {
       setLoadingDetail(true);
-      const detail = await getFeatureDetails(repoPath, selectedFeatureId, contentLang);
+      const detail = clientSource
+        ? await clientGetFeatureDetails(clientSource, selectedFeatureId, contentLang)
+        : await getFeatureDetails(repoPath, selectedFeatureId, contentLang);
       setFeatureDetail(detail);
       setLoadingDetail(false);
 
@@ -233,7 +291,7 @@ export default function Home() {
     };
 
     loadDetails();
-  }, [selectedFeatureId, repoPath, scanStatus, features, contentLang]);
+  }, [selectedFeatureId, repoPath, scanStatus, features, contentLang, clientSource]);
 
   // Calculate global repository stats
   const totalFeatures = features.length;
@@ -974,6 +1032,14 @@ export default function Home() {
           </div>
         </div>
       )}
+      {/* Hidden input for folder fallback selection */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        style={{ display: 'none' }}
+        {...{ webkitdirectory: '', directory: '' }}
+        onChange={handleFileInputChange}
+      />
     </div>
   );
 }

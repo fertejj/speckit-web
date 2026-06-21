@@ -20,7 +20,9 @@ import {
   HelpCircle,
   FileCheck,
   ChevronRight,
-  Compass
+  Compass,
+  Sun,
+  Moon
 } from 'lucide-react';
 import styles from './page.module.css';
 import { 
@@ -48,6 +50,10 @@ export default function Home() {
   const [history, setHistory] = useState<string[]>([]);
   const [showHistory, setShowHistory] = useState(false);
 
+  // Theme & Scanner Collapse State
+  const [theme, setTheme] = useState<'light' | 'dark'>('light');
+  const [showScanner, setShowScanner] = useState(false);
+
   // File Explorer State
   const [isOpenExplorer, setIsOpenExplorer] = useState(false);
   const [explorerPath, setExplorerPath] = useState('');
@@ -56,8 +62,19 @@ export default function Home() {
 
   const historyRef = useRef<HTMLDivElement>(null);
 
-  // Load history from localStorage on mount
+  // Load theme and history from localStorage on mount
   useEffect(() => {
+    // Theme setup
+    const savedTheme = localStorage.getItem('speckit_theme') as 'light' | 'dark' | null;
+    if (savedTheme) {
+      setTheme(savedTheme);
+      document.documentElement.setAttribute('data-theme', savedTheme);
+    } else {
+      setTheme('light');
+      document.documentElement.setAttribute('data-theme', 'light');
+    }
+
+    // History setup
     const savedHistory = localStorage.getItem('speckit_repo_history');
     if (savedHistory) {
       try {
@@ -71,6 +88,14 @@ export default function Home() {
       handleScan(lastRepo);
     }
   }, []);
+
+  // Update theme helper
+  const toggleTheme = () => {
+    const nextTheme = theme === 'light' ? 'dark' : 'light';
+    setTheme(nextTheme);
+    document.documentElement.setAttribute('data-theme', nextTheme);
+    localStorage.setItem('speckit_theme', nextTheme);
+  };
 
   // Close history menu when clicking outside
   useEffect(() => {
@@ -131,16 +156,19 @@ export default function Home() {
 
     if (!status.exists) {
       setScanStatus('not_found');
+      setShowScanner(true);
       return;
     }
 
     if (!status.isSpeckit) {
       setScanStatus('invalid_speckit');
+      setShowScanner(true);
       return;
     }
 
     setScanStatus('success');
     setSpeckitVersion(status.speckitVersion || 'Unknown');
+    setShowScanner(false); // Collapse input on success
 
     // Save to localStorage
     localStorage.setItem('speckit_last_repo', targetPath);
@@ -197,100 +225,142 @@ export default function Home() {
       {/* Header/Top Bar */}
       <header className={styles.topBar}>
         <div className={styles.logoArea}>
-          <Sparkles className={styles.logoIcon} size={22} />
-          <span className={styles.logoText}>SpecKit Dashboard</span>
+          <Sparkles className={styles.logoIcon} size={20} />
+          <span className={styles.logoText}>SpecKit</span>
           {scanStatus === 'success' && (
             <span className={styles.logoSub}>v{speckitVersion}</span>
           )}
         </div>
 
-        <div className={styles.scanSection}>
-          <div className={styles.inputGroup} ref={historyRef}>
-            <input 
-              type="text" 
-              placeholder="Enter absolute repository path (e.g. C:\Users\Fer\Desktop\DEV\dentaflow)..." 
-              value={repoPath}
-              onChange={(e) => setRepoPath(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleScan(repoPath)}
-            />
+        {/* Project Switcher OR Scanning Field */}
+        {scanStatus === 'success' && !showScanner ? (
+          <div className={styles.activeProjectArea}>
+            <div className={styles.activeProjectInfo}>
+              <FolderCheck size={16} className={styles.projectIcon} />
+              <span className={styles.projectName} title={repoPath}>
+                {repoPath.split(/[\\/]/).filter(Boolean).pop() || repoPath}
+              </span>
+            </div>
             <button 
-              className={styles.folderPickerBtn} 
-              onClick={handleOpenExplorer}
-              title="Select Repository Folder"
+              className={styles.changeProjectBtn} 
+              onClick={() => setShowScanner(true)}
               type="button"
             >
-              <Folder size={18} />
-            </button>
-            {history.length > 0 && (
-              <button 
-                className={styles.historyBtn} 
-                onClick={() => setShowHistory(!showHistory)}
-                title="Recent Repositories"
-              >
-                <History size={18} />
-              </button>
-            )}
-            {showHistory && (
-              <div className={styles.historyMenu}>
-                {history.map((path, idx) => (
-                  <button 
-                    key={idx} 
-                    className={styles.historyItem}
-                    onClick={() => {
-                      setRepoPath(path);
-                      handleScan(path);
-                      setShowHistory(false);
-                    }}
-                  >
-                    <Folder size={14} className={styles.historyIcon} />
-                    <span>{path}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-            <button 
-              className={styles.scanButton}
-              onClick={() => handleScan(repoPath)}
-              disabled={scanStatus === 'scanning'}
-            >
-              {scanStatus === 'scanning' ? (
-                <Loader2 size={16} className={styles.loadingSpinner} />
-              ) : 'Scan'}
+              Switch Repository
             </button>
           </div>
-        </div>
+        ) : (
+          <div className={styles.scanSection}>
+            <div className={styles.inputGroup} ref={historyRef}>
+              <input 
+                type="text" 
+                placeholder="Enter absolute repository path (e.g. C:\Users\Fer\Desktop\DEV\dentaflow)..." 
+                value={repoPath}
+                onChange={(e) => setRepoPath(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleScan(repoPath)}
+              />
+              <button 
+                className={styles.folderPickerBtn} 
+                onClick={handleOpenExplorer}
+                title="Select Repository Folder"
+                type="button"
+              >
+                <Folder size={16} />
+              </button>
+              {history.length > 0 && (
+                <button 
+                  className={styles.historyBtn} 
+                  onClick={() => setShowHistory(!showHistory)}
+                  title="Recent Repositories"
+                  type="button"
+                >
+                  <History size={16} />
+                </button>
+              )}
+              {showHistory && (
+                <div className={styles.historyMenu}>
+                  {history.map((path, idx) => (
+                    <button 
+                      key={idx} 
+                      className={styles.historyItem}
+                      onClick={() => {
+                        setRepoPath(path);
+                        handleScan(path);
+                        setShowHistory(false);
+                      }}
+                      type="button"
+                    >
+                      <Folder size={14} className={styles.historyIcon} />
+                      <span>{path}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              <button 
+                className={styles.scanButton}
+                onClick={() => handleScan(repoPath)}
+                disabled={scanStatus === 'scanning'}
+                type="button"
+              >
+                {scanStatus === 'scanning' ? (
+                  <Loader2 size={14} className={styles.loadingSpinner} />
+                ) : 'Scan'}
+              </button>
+            </div>
+            {scanStatus === 'success' && (
+              <button 
+                className={styles.cancelScanBtn}
+                onClick={() => setShowScanner(false)}
+                type="button"
+              >
+                Cancel
+              </button>
+            )}
+          </div>
+        )}
 
-        <div>
-          {scanStatus === 'idle' && (
-            <div className={styles.badge}>
-              <Folder size={14} />
-              <span>Ready to Scan</span>
-            </div>
-          )}
-          {scanStatus === 'scanning' && (
-            <div className={`${styles.badge} ${styles.badgeInfo}`}>
-              <Loader2 size={14} className={styles.loadingSpinner} />
-              <span>Checking Directory...</span>
-            </div>
-          )}
-          {scanStatus === 'success' && (
-            <div className={`${styles.badge} ${styles.badgeSuccess}`}>
-              <FolderCheck size={14} />
-              <span>SpecKit Detected</span>
-            </div>
-          )}
-          {scanStatus === 'invalid_speckit' && (
-            <div className={`${styles.badge} ${styles.badgeWarning}`}>
-              <AlertCircle size={14} />
-              <span>No SpecKit Config Found</span>
-            </div>
-          )}
-          {scanStatus === 'not_found' && (
-            <div className={`${styles.badge} ${styles.badgeDanger}`}>
-              <AlertCircle size={14} />
-              <span>Path Not Found</span>
-            </div>
-          )}
+        <div className={styles.headerActions}>
+          <button 
+            className={styles.themeToggleBtn} 
+            onClick={toggleTheme}
+            title={theme === 'light' ? 'Switch to Dark Mode' : 'Switch to Light Mode'}
+            type="button"
+          >
+            {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
+          </button>
+
+          <div className={styles.badgeContainer}>
+            {scanStatus === 'idle' && (
+              <div className={styles.badge}>
+                <Folder size={12} />
+                <span>Ready</span>
+              </div>
+            )}
+            {scanStatus === 'scanning' && (
+              <div className={`${styles.badge} ${styles.badgeInfo}`}>
+                <Loader2 size={12} className={styles.loadingSpinner} />
+                <span>Checking...</span>
+              </div>
+            )}
+            {scanStatus === 'success' && (
+              <div className={`${styles.badge} ${styles.badgeSuccess}`}>
+                <FolderCheck size={12} />
+                <span>Detected</span>
+              </div>
+            )}
+            {scanStatus === 'invalid_speckit' && (
+              <div className={`${styles.badge} ${styles.badgeWarning}`}>
+                <AlertCircle size={12} />
+                <span>No SpecKit</span>
+              </div>
+            )}
+            {scanStatus === 'not_found' && (
+              <div className={`${styles.badge} ${styles.badgeDanger}`}>
+                <AlertCircle size={12} />
+                <span>Not Found</span>
+              </div>
+            )}
+          </div>
         </div>
       </header>
 
@@ -299,26 +369,26 @@ export default function Home() {
         {/* Sidebar */}
         {scanStatus === 'success' && (
           <aside className={styles.sidebar}>
-            <div className={styles.sidebarTitle}>Features & SpecFiles</div>
-            <div className={styles.featureList}>
+            <div className={styles.sidebarHeader}>
               <button 
-                className={`${styles.featureCard} ${!selectedFeatureId ? styles.featureCardActive : ''}`}
+                className={`${styles.sidebarHomeBtn} ${!selectedFeatureId ? styles.sidebarHomeBtnActive : ''}`}
                 onClick={() => setSelectedFeatureId(null)}
+                type="button"
               >
-                <div className={styles.featureCardTitle}>Repository Summary</div>
-                <div className={styles.featureCardMeta}>
-                  <span>Stats & Overview</span>
-                  <span className={styles.progressPill}>{avgProgress}% Total</span>
-                </div>
+                <Compass size={16} />
+                <span>Overview</span>
+                <span className={styles.homeProgressBadge}>{avgProgress}%</span>
               </button>
+            </div>
 
-              <div style={{ height: '1px', background: 'var(--border-color)', margin: '8px 8px 4px 8px' }} />
-
+            <div className={styles.sidebarTitle}>Features</div>
+            <div className={styles.featureList}>
               {features.map((feat) => (
                 <button
                   key={feat.id}
                   className={`${styles.featureCard} ${selectedFeatureId === feat.id ? styles.featureCardActive : ''}`}
                   onClick={() => setSelectedFeatureId(feat.id)}
+                  type="button"
                 >
                   <div className={styles.featureCardTitle}>{feat.title}</div>
                   <div className={styles.featureCardMeta}>
@@ -336,20 +406,51 @@ export default function Home() {
           <div className={styles.scrollContainer}>
             {scanStatus === 'idle' && (
               <div className={styles.emptyState}>
-                <Folder size={64} className={styles.emptyIcon} />
-                <h2>Inspect Spec-kit Repositories</h2>
+                <Sparkles size={48} className={styles.emptyIcon} />
+                <h2>SpecKit Dashboard</h2>
                 <p>
-                  Enter the local absolute path to any development repository above. The system will auto-detect GitHub Spec-kit configuration (`.specify` & `specs/`) and dynamically visualize specifications, implementation plans, checklists, and tasks.
+                  Explore and manage your development specifications, tasks, and implementation plans.
                 </p>
-                <button 
-                  className={styles.scanButton} 
-                  onClick={handleOpenExplorer}
-                  style={{ marginTop: '24px', padding: '12px 24px', fontSize: '0.95rem' }}
-                  type="button"
-                >
-                  <Folder size={18} style={{ marginRight: '6px' }} />
-                  Select Folder Manually
-                </button>
+                
+                <div className={styles.welcomeActions}>
+                  <button 
+                    className={styles.primaryScanBtn} 
+                    onClick={handleOpenExplorer}
+                    type="button"
+                  >
+                    <Folder size={16} />
+                    <span>Select Repository Folder</span>
+                  </button>
+                </div>
+
+                {history.length > 0 && (
+                  <div className={styles.recentReposSection}>
+                    <h3 className={styles.recentReposTitle}>Recent Repositories</h3>
+                    <div className={styles.recentReposGrid}>
+                      {history.map((path, idx) => {
+                        const name = path.split(/[\\/]/).filter(Boolean).pop() || path;
+                        return (
+                          <button
+                            key={idx}
+                            className={styles.recentRepoCard}
+                            onClick={() => {
+                              setRepoPath(path);
+                              handleScan(path);
+                            }}
+                            type="button"
+                          >
+                            <FolderCheck size={20} className={styles.recentIcon} />
+                            <div className={styles.recentInfo}>
+                              <span className={styles.recentName}>{name}</span>
+                              <span className={styles.recentPath}>{path}</span>
+                            </div>
+                            <ArrowRight size={14} className={styles.recentArrow} />
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -372,8 +473,8 @@ export default function Home() {
                     ? 'The absolute path you entered does not exist. Please check your path spelling and formatting.' 
                     : 'The directory is valid but it does not contain a Spec-kit project configuration. Spec-kit projects contain a `.specify/` folder or a `specs/` directory.'}
                 </p>
-                <div style={{ background: 'rgba(255,255,255,0.03)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border-color)', maxWidth: '400px', textAlign: 'left', fontSize: '0.85rem' }}>
-                  <strong>Troubleshooting:</strong>
+                <div style={{ background: 'var(--bg-card)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border-color)', maxWidth: '400px', textAlign: 'left', fontSize: '0.85rem' }}>
+                  <strong style={{ color: 'var(--text-primary)' }}>Troubleshooting:</strong>
                   <ul style={{ paddingLeft: '20px', marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '6px', color: 'var(--text-secondary)' }}>
                     <li>Ensure you provide the full absolute path (e.g. <code>C:\Users\Fer\Desktop\DEV\dentaflow</code>)</li>
                     <li>Verify the folder contains a <code>specs</code> subdirectory with markdown files.</li>
@@ -391,23 +492,29 @@ export default function Home() {
 
                 <div className={styles.statsGrid}>
                   <div className={styles.statCard}>
-                    <Layout className={styles.statIcon} size={24} />
+                    <div className={styles.statIconWrapper}>
+                      <Layout className={styles.statIcon} size={20} />
+                    </div>
                     <div className={styles.statInfo}>
-                      <span className={styles.statLabel}>Features Registered</span>
+                      <span className={styles.statLabel}>Features</span>
                       <span className={styles.statValue}>{totalFeatures}</span>
                     </div>
                   </div>
 
                   <div className={styles.statCard}>
-                    <CheckCircle2 className={styles.statIcon} size={24} />
+                    <div className={styles.statIconWrapper}>
+                      <CheckCircle2 className={styles.statIcon} size={20} />
+                    </div>
                     <div className={styles.statInfo}>
-                      <span className={styles.statLabel}>Completed Features</span>
+                      <span className={styles.statLabel}>Completed</span>
                       <span className={styles.statValue}>{completedFeatures}</span>
                     </div>
                   </div>
 
                   <div className={styles.statCard}>
-                    <Compass className={styles.statIcon} size={24} />
+                    <div className={styles.statIconWrapper}>
+                      <Compass className={styles.statIcon} size={20} />
+                    </div>
                     <div className={styles.statInfo}>
                       <span className={styles.statLabel}>Avg Progress</span>
                       <span className={styles.statValue}>{avgProgress}%</span>
@@ -417,7 +524,7 @@ export default function Home() {
 
                 <div className={styles.summarySection}>
                   <h2>
-                    <ClipboardList size={20} />
+                    <ClipboardList size={18} />
                     <span>Spec-kit Features Checklist</span>
                   </h2>
 
@@ -442,7 +549,7 @@ export default function Home() {
                           </td>
                           <td style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>
                             {feat.branch ? (
-                              <span className={styles.metaItem} style={{ color: '#a5b4fc' }}>
+                              <span className={styles.metaItem}>
                                 <GitBranch size={12} style={{ marginRight: '4px' }} />
                                 {feat.branch}
                               </span>
@@ -533,6 +640,7 @@ export default function Home() {
                     onClick={() => setActiveTab('spec')}
                     disabled={!selectedFeature.hasSpec}
                     style={{ opacity: selectedFeature.hasSpec ? 1 : 0.4, cursor: selectedFeature.hasSpec ? 'pointer' : 'not-allowed' }}
+                    type="button"
                   >
                     <FileText size={16} />
                     <span>Specification</span>
@@ -542,6 +650,7 @@ export default function Home() {
                     onClick={() => setActiveTab('plan')}
                     disabled={!selectedFeature.hasPlan}
                     style={{ opacity: selectedFeature.hasPlan ? 1 : 0.4, cursor: selectedFeature.hasPlan ? 'pointer' : 'not-allowed' }}
+                    type="button"
                   >
                     <Compass size={16} />
                     <span>Implementation Plan</span>
@@ -551,6 +660,7 @@ export default function Home() {
                     onClick={() => setActiveTab('tasks')}
                     disabled={!selectedFeature.hasTasks}
                     style={{ opacity: selectedFeature.hasTasks ? 1 : 0.4, cursor: selectedFeature.hasTasks ? 'pointer' : 'not-allowed' }}
+                    type="button"
                   >
                     <CheckSquare size={16} />
                     <span>Tasks Checklist</span>
@@ -560,6 +670,7 @@ export default function Home() {
                     onClick={() => setActiveTab('walkthrough')}
                     disabled={!selectedFeature.hasWalkthrough}
                     style={{ opacity: selectedFeature.hasWalkthrough ? 1 : 0.4, cursor: selectedFeature.hasWalkthrough ? 'pointer' : 'not-allowed' }}
+                    type="button"
                   >
                     <FileCheck size={16} />
                     <span>Walkthrough</span>
@@ -569,6 +680,7 @@ export default function Home() {
                     onClick={() => setActiveTab('requirements')}
                     disabled={!selectedFeature.hasRequirements}
                     style={{ opacity: selectedFeature.hasRequirements ? 1 : 0.4, cursor: selectedFeature.hasRequirements ? 'pointer' : 'not-allowed' }}
+                    type="button"
                   >
                     <ClipboardList size={16} />
                     <span>Requirements</span>
@@ -668,7 +780,7 @@ export default function Home() {
                 <Folder className={styles.explorerFolderIcon} size={20} />
                 <span>Browse Local Filesystem</span>
               </h3>
-              <button className={styles.closeBtn} onClick={() => setIsOpenExplorer(false)}>
+              <button className={styles.closeBtn} onClick={() => setIsOpenExplorer(false)} type="button">
                 X
               </button>
             </div>
@@ -683,6 +795,7 @@ export default function Home() {
                       key={drive} 
                       className={styles.driveBtn}
                       onClick={() => handleNavigateExplorer(drive)}
+                      type="button"
                     >
                       {drive}
                     </button>
@@ -712,6 +825,7 @@ export default function Home() {
                       <button 
                         className={styles.breadcrumbItem}
                         onClick={() => handleNavigateExplorer(pathSegment)}
+                        type="button"
                       >
                         {part}
                       </button>
@@ -734,6 +848,7 @@ export default function Home() {
                       <button 
                         className={styles.explorerRow}
                         onClick={() => handleNavigateExplorer(explorerContent.parentPath!)}
+                        type="button"
                       >
                         <div className={styles.explorerFolderInfo}>
                           <Folder className={styles.explorerFolderIcon} size={16} />
@@ -749,6 +864,7 @@ export default function Home() {
                           key={folder.path}
                           className={styles.explorerRow}
                           onClick={() => handleNavigateExplorer(folder.path)}
+                          type="button"
                         >
                           <div className={styles.explorerFolderInfo}>
                             <Folder className={styles.explorerFolderIcon} size={16} />
@@ -774,10 +890,10 @@ export default function Home() {
                 Path: <code>{explorerPath}</code>
               </div>
               <div className={styles.footerActions}>
-                <button className={styles.cancelBtn} onClick={() => setIsOpenExplorer(false)}>
+                <button className={styles.cancelBtn} onClick={() => setIsOpenExplorer(false)} type="button">
                   Cancel
                 </button>
-                <button className={styles.scanButton} onClick={handleSelectExplorerFolder}>
+                <button className={styles.scanButton} onClick={handleSelectExplorerFolder} type="button">
                   Select Folder
                 </button>
               </div>

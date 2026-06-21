@@ -1,5 +1,7 @@
 # SpecKit Manager
 
+https://speckit-web.vercel.app/
+
 [Leer en Español](#speckit-manager-en-español)
 
 SpecKit Manager is a modern Next.js desktop dashboard application designed to organize, view, and manage local software development repositories that use the **GitHub Spec-Kit architecture**. 

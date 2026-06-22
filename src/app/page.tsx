@@ -23,7 +23,10 @@ import {
   Compass,
   Sun,
   Moon,
-  Globe
+  Globe,
+  Copy,
+  Check,
+  Terminal
 } from 'lucide-react';
 import styles from './page.module.css';
 import { 
@@ -51,9 +54,19 @@ export default function Home() {
   const [scanStatus, setScanStatus] = useState<'idle' | 'scanning' | 'success' | 'not_found' | 'invalid_speckit'>('idle');
   const [speckitVersion, setSpeckitVersion] = useState<string | null>(null);
   const [features, setFeatures] = useState<FeatureSummary[]>([]);
+  const [showInstallModal, setShowInstallModal] = useState(false);
+  const [copiedText, setCopiedText] = useState<string | null>(null);
   
   const [selectedFeatureId, setSelectedFeatureId] = useState<string | null>(null);
   const [lang, setLang] = useState<Language>('en');
+
+  const handleCopy = (text: string, id: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedText(id);
+    setTimeout(() => {
+      setCopiedText(null);
+    }, 2000);
+  };
 
   // Translation helper
   const t = (key: TranslationKeys): string => {
@@ -113,6 +126,7 @@ export default function Home() {
     if (!status.isSpeckit) {
       setScanStatus('invalid_speckit');
       setShowScanner(true);
+      setShowInstallModal(true);
       return;
     }
 
@@ -573,13 +587,22 @@ export default function Home() {
                     ? t('errorDirNotFoundDesc') 
                     : t('errorNotSpeckitDesc')}
                 </p>
-                <div style={{ background: 'var(--bg-card)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border-color)', maxWidth: '400px', textAlign: 'left', fontSize: '0.85rem' }}>
+                <div style={{ background: 'var(--bg-card)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border-color)', maxWidth: '400px', textAlign: 'left', fontSize: '0.85rem', marginBottom: '24px' }}>
                   <strong style={{ color: 'var(--text-primary)' }}>{t('troubleshootingTitle')}</strong>
                   <ul style={{ paddingLeft: '20px', marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '6px', color: 'var(--text-secondary)' }}>
                     <li>{t('troubleshootingStep1')}</li>
                     <li>{t('troubleshootingStep2')}</li>
                   </ul>
                 </div>
+                {scanStatus === 'invalid_speckit' && (
+                  <button 
+                    className={styles.viewInstallBtn}
+                    onClick={() => setShowInstallModal(true)}
+                    type="button"
+                  >
+                    {t('installModalTitle')}
+                  </button>
+                )}
               </div>
             )}
 
@@ -1032,6 +1055,108 @@ export default function Home() {
           </div>
         </div>
       )}
+      {/* SpecKit Installation Modal */}
+      {showInstallModal && (
+        <div className={styles.modalOverlay}>
+          <div className={`${styles.modalContainer} ${styles.installModal}`}>
+            <div className={styles.modalHeader}>
+              <h3>
+                <Terminal className={styles.explorerFolderIcon} size={20} />
+                <span>{t('installModalTitle')}</span>
+              </h3>
+              <button className={styles.closeBtn} onClick={() => setShowInstallModal(false)} type="button">
+                X
+              </button>
+            </div>
+
+            <div className={styles.modalBody} style={{ overflowY: 'auto', maxHeight: '60vh' }}>
+              <p className={styles.installModalDesc}>
+                {t('installModalDesc')}
+              </p>
+
+              <div className={styles.installOptionSection}>
+                <h4>1. {t('installModalStep1Title')}</h4>
+                <p className={styles.installStepText}>
+                  {t('installModalStep1Req')}{' '}
+                  <a href="https://github.com/astral-sh/uv" target="_blank" rel="noopener noreferrer" className={styles.installLink}>
+                    {t('installModalStep1ReqLink')}
+                  </a>.
+                  {' '}{t('installModalStep1Replace')}{' '}
+                  <a href="https://github.com/github/spec-kit/releases" target="_blank" rel="noopener noreferrer" className={styles.installLink}>
+                    Releases
+                  </a>:
+                </p>
+                <div className={styles.codeBlockWrapper}>
+                  <pre>
+                    <code>uv tool install specify-cli --from git+https://github.com/github/spec-kit.git@vX.Y.Z</code>
+                  </pre>
+                  <button 
+                    className={styles.copyCodeBtn}
+                    onClick={() => handleCopy('uv tool install specify-cli --from git+https://github.com/github/spec-kit.git@vX.Y.Z', 'cli-install')}
+                    type="button"
+                  >
+                    {copiedText === 'cli-install' ? (
+                      <>
+                        <Check size={12} />
+                        <span>{t('installModalCopied')}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy size={12} />
+                        <span>{t('installModalCopy')}</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+                <p className={styles.installStepText}>
+                  {t('installModalStep1GuidePrefix')}{' '}
+                  <a href="https://github.com/github/spec-kit" target="_blank" rel="noopener noreferrer" className={styles.installLink}>
+                    {t('installModalStep1GuideLink')}
+                  </a>{' '}
+                  {t('installModalStep1GuideSuffix')}
+                </p>
+              </div>
+
+              <div className={styles.divider} />
+
+              <div className={styles.installOptionSection}>
+                <h4>2. {t('installModalStep2Title')}</h4>
+                <div className={styles.codeBlockWrapper}>
+                  <pre>
+                    <code>specify init my-project --integration copilot
+cd my-project</code>
+                  </pre>
+                  <button 
+                    className={styles.copyCodeBtn}
+                    onClick={() => handleCopy("specify init my-project --integration copilot\ncd my-project", 'cli-init')}
+                    type="button"
+                  >
+                    {copiedText === 'cli-init' ? (
+                      <>
+                        <Check size={12} />
+                        <span>{t('installModalCopied')}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy size={12} />
+                        <span>{t('installModalCopy')}</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className={styles.modalFooter}>
+              <div style={{ flexGrow: 1 }} />
+              <button className={styles.scanButton} onClick={() => setShowInstallModal(false)} type="button">
+                {t('installModalClose')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Hidden input for folder fallback selection */}
       <input
         type="file"
